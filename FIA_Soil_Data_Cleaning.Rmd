@@ -94,7 +94,7 @@ test=soils_lab_table_data %>%
 There are three columns that might be of interest for carbon stock estimation: inorganic C, organic C, and total C. Some rows have data in the organic carbon column, others have data in the inorganic column, some have both, some have data only in the total C column, etc. The convention for reporting seems to vary by region. We are applying a rule to use the total C- adding inorganic and organic C. I recalculated it for the contiguous US to make sure it is consistent. Here is the code I use to do that:
 
 ```{r gather_C_data}
-#this is clunky, I know:
+#this is clunky, I know. This gathers the C data but also filters the dataset on some guidelines I am using for downstream analyses:
 
 soils_data_filtered=soils_lab_table_data %>% 
   select(plt_cn, uid, invyr, statecd, countycd, plot, layer_type, sampler_type, air_dry_soil_wt, oven_dry_soil_wt, residual_water_content_pct, coarse_fraction_pct, bulk_density, c_org_pct, c_inorg_pct, c_total_pct)%>%

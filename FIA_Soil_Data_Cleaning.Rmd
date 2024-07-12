@@ -34,11 +34,7 @@ soils_lab_table_data=read.csv("data/soils_lab_table_data.csv")%>%
 soils_sample_loc_table_data=read.csv("data/soils_sample_loc_table_data.csv")%>% 
   mutate(plt_cn=as.character(plt_cn))
 
-soils_seedling_regen_table_data=read.csv("data/soils_seedling_regen_table_data.csv")%>% 
-  mutate(plt_cn=as.character(plt_cn))
 
-soils_tree_table_data=read.csv("data/soils_tree_table_data.csv")%>% 
-  mutate(plt_cn=as.character(plt_cn))
 
 
 ```

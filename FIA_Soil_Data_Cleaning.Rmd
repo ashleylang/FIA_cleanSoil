@@ -1,0 +1,127 @@
+---
+title: "Data Cleaning: FIADB Soil Tables"
+author: "AKL"
+date: "2024-07-12"
+output: html_document
+---
+
+```{r setup, include=FALSE, echo=F, message=F, warning=F}
+library(tidyverse)
+```
+## Reading in the data:
+
+```{r read}
+#read in the data (now in my local files, but will change this eventually to be from the web):
+
+#To avoid errors with plt_cn, convert it to character when reading in the tables (may apply only to previously downloaded data- Excel conversion to scientific notation
+
+soils_condition_level_data=read.csv("data/soils_condition_level_data.csv") %>% 
+  mutate(plt_cn=as.character(plt_cn))
+
+forested_plots=soils_condition_level_data %>% 
+  filter(cond_status_cd==1) %>% #Filter by cond_status_cd to selected only forest conditions
+  select(plt_cn) %>% 
+  distinct() #10630
+forested_plots_list=forested_plots$plt_cn
+
+soils_down_woody_material_calc_table_data=read.csv("data/soils_down_woody_material_calc_table_data.csv")%>% 
+  mutate(plt_cn=as.character(plt_cn))
+
+soils_lab_table_data=read.csv("data/soils_lab_table_data.csv")%>% 
+  mutate(plt_cn=as.character(plt_cn)) %>% 
+  unite(col="uid", c(statecd, countycd, plot, invyr), sep="_", remove=F) #The recommended sample identifier for cross-referencing tables is a combination of statecd, countycd, plot, invyr, and layer_type (as much detail as is needed for the specific query) 
+
+soils_sample_loc_table_data=read.csv("data/soils_sample_loc_table_data.csv")%>% 
+  mutate(plt_cn=as.character(plt_cn))
+
+soils_seedling_regen_table_data=read.csv("data/soils_seedling_regen_table_data.csv")%>% 
+  mutate(plt_cn=as.character(plt_cn))
+
+soils_tree_table_data=read.csv("data/soils_tree_table_data.csv")%>% 
+  mutate(plt_cn=as.character(plt_cn))
+
+
+```
+
+
+
+## Checking for sample mass errors:
+
+Some samples appear to have been sub-sampled before oven drying and recording the whole sample mass. This results in unusually (sometimes illogically) high moisture percentages. Here's how I removed these:
+
+```{r check_masses}
+#This is an investigation into suspicious patterns in oven dry weight (I believe they were sub-sampled before drying)
+suspect_oven_dry_weights=soils_lab_table_data %>% 
+  select(plt_cn, statecd, layer_type,field_moist_soil_wt,  air_dry_soil_wt, oven_dry_soil_wt, lab_id, residual_water_content_pct) %>% 
+  filter(layer_type=="MIN_2"| layer_type=="MIN_1") %>% #change as needed to check layer(s) of interest
+  mutate(pct_water_AKL=100*(1-(oven_dry_soil_wt/air_dry_soil_wt))) %>% #re-calculating to ensure consistency
+  filter(pct_water_AKL>50 & oven_dry_soil_wt <25) #High moisture and unusually low sample mass
+
+remove_plts_oven=unique(suspect_oven_dry_weights$plt_cn) #can filter data with this vector later
+
+#Findings from this investigation:
+#About 350 Litter samples appear to have been sub-sampled before oven drying, mostly at Flag.RMRS
+#About 145 Min_1 samples, same thing: all RMRS
+#About 230 Min_2 samples, split between RMRS and LOFSL
+```
+
+## Whole core mass on an oven dry basis: 
+
+We are going to apply this to the whole FIADB. In some cases, this solves the subsampling mass issue, but it does not always work-- sometimes the residual water content was calculated using the air dry and oven dry weights as they are in the DB (which is likely a subsample for oven dry mass).
+
+```{r whole_core_mass}
+whole_core_od=soils_lab_table_data %>% 
+  select(uid,plt_cn, layer_type, oven_dry_soil_wt, air_dry_soil_wt,  residual_water_content_pct) %>% 
+  mutate(residual_water_content_pct=abs(residual_water_content_pct), whole_sample_oven_dry_basis= air_dry_soil_wt/((residual_water_content_pct/100) + 1)) %>% 
+  filter(layer_type == "MIN_1" | layer_type== "MIN_2",
+         residual_water_content_pct<100)
+#took absolute value of the negative residual water content value because I am pretty sure it was a typo
+```
+
+## Bulk Density
+
+Next, we want consistency in the caluclation of bulk density across regions, and we want to ensure the whole core sample mass values are corrected (as above)
+
+```{r bulk_density}
+test=soils_lab_table_data %>% 
+   filter(sampler_type=="BD") %>%
+  select(uid,statecd,layer_type,field_moist_soil_wt, air_dry_soil_wt, field_moist_water_content_pct, oven_dry_soil_wt, residual_water_content_pct, total_water_content_pct, bulk_density, coarse_fraction_pct) %>%
+  mutate(Ashley_BD1=oven_dry_soil_wt/180,
+           Ashley_BD2=(air_dry_soil_wt/((residual_water_content_pct/100+1)))/180)#BD2 is correct for NRS, slightly off for other regions because they use 181 as the core volume. The numerator of this equation is how to calculate whole core oven dry mass.
+
+#Note: The bulk_density column should only contain values where the sampler type is "BD"; if the bulk_density column contains data where the sampler type is not BD, it is recommended to ignore the bulk_density data.
+```
+
+
+## Gathering up all the carbon data:
+
+There are three columns that might be of interest for carbon stock estimation: inorganic C, organic C, and total C. Some rows have data in the organic carbon column, others have data in the inorganic column, some have both, some have data only in the total C column, etc. The convention for reporting seems to vary by region. We are applying a rule to use the total C- adding inorganic and organic C. I recalculated it for the contiguous US to make sure it is consistent. Here is the code I use to do that:
+
+```{r gather_C_data}
+#this is clunky, I know:
+
+soils_data_filtered=soils_lab_table_data %>% 
+  select(plt_cn, uid, invyr, statecd, countycd, plot, layer_type, sampler_type, air_dry_soil_wt, oven_dry_soil_wt, residual_water_content_pct, coarse_fraction_pct, bulk_density, c_org_pct, c_inorg_pct, c_total_pct)%>%
+   unite(col="plot_id", c(statecd, countycd, plot), sep="_", remove=F) %>% 
+  replace_na(list(c_inorg_pct=0, c_org_pct=0, c_total_pct=0, residual_water_content_pct=0)) %>% 
+  filter(plt_cn %in% forested_plots_list,
+         !plt_cn %in% remove_plts_oven,
+         layer_type=="MIN_1" | layer_type=="MIN_2", #Mineral soil only
+         statecd != 15, #removing Hawaii
+         statecd!= 2, #removing Alaska
+         sampler_type == "BD",
+        c_org_pct > 0 | c_org_pct ==0, #No negative C percentages...
+       c_total_pct > 0 | c_total_pct ==0, #No negative C percentages...
+      residual_water_content_pct > 0 | residual_water_content_pct ==0)  %>% #No negative water content...
+  mutate(c_total_pct_akl=c_org_pct+c_inorg_pct) %>% #adding all C pools to compare against c_total_pct
+  mutate(total_soil_c=case_when(c_total_pct>= c_total_pct_akl ~ c_total_pct, #use the larger of the two
+                                c_total_pct_akl>c_total_pct ~ c_total_pct_akl)) %>% 
+  filter(total_soil_c>0) %>% #make sure there's at least some carbon there...
+  select(-c_total_pct_akl, -c_total_pct) #get rid of dummy columns, now we're using total_soil_c and I know this is not best practice :) 
+
+
+
+
+```
+
+

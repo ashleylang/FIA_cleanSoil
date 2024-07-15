@@ -82,8 +82,7 @@ Next, we want consistency in the caluclation of bulk density across regions, and
 test=soils_lab_table_data %>% 
    filter(sampler_type=="BD") %>%
   select(uid,statecd,layer_type,field_moist_soil_wt, air_dry_soil_wt, field_moist_water_content_pct, oven_dry_soil_wt, residual_water_content_pct, total_water_content_pct, bulk_density, coarse_fraction_pct) %>%
-  mutate(Ashley_BD1=oven_dry_soil_wt/180,
-           Ashley_BD2=(air_dry_soil_wt/((residual_water_content_pct/100+1)))/180)#BD2 is correct for NRS, slightly off for other regions because they use 181 as the core volume. The numerator of this equation is how to calculate whole core oven dry mass.
+  mutate(BD_adj=(air_dry_soil_wt/((residual_water_content_pct/100+1)))/180)#This is correct for NRS, slightly off for other regions because they use 181 as the core volume. The numerator of this equation is how to calculate whole core oven dry mass.
 
 #Note: The bulk_density column should only contain values where the sampler type is "BD"; if the bulk_density column contains data where the sampler type is not BD, it is recommended to ignore the bulk_density data.
 ```
